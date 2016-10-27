@@ -194,15 +194,10 @@ namespace Microsoft.Extensions.Caching.Memory
 
             CheckDisposed();
             CacheEntry entry;
-            if (_entries.TryGetValue(key, out entry))
+            if (_entries.TryRemove(key, out entry))
             {
                 entry.SetExpired(EvictionReason.Removed);
-            }
-
-            if (entry != null)
-            {
-                // TODO: For efficiency consider processing these removals in batches.
-                RemoveEntry(entry);
+                entry.InvokeEvictionCallbacks();
             }
 
             StartScanForExpiredItems();
