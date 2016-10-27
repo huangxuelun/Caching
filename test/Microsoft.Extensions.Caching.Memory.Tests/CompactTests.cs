@@ -63,19 +63,5 @@ namespace Microsoft.Extensions.Caching.Memory
             Assert.Equal("value3", cache.Get("key3"));
             Assert.Equal("value4", cache.Get("key4"));
         }
-
-        [Fact]
-        public void CompactPrioritizesLRU()
-        {
-            var cache = CreateCache();
-            cache.Set("key1", "value1");
-            cache.Set("key2", "value2");
-            cache.Set("key3", "value3");
-            cache.Set("key4", "value4");
-            Assert.Equal(4, cache.Count);
-            cache.Compact(0.90);
-            Assert.Equal(1, cache.Count);
-            Assert.Equal("value4", cache.Get("key4"));
-        }
     }
 }

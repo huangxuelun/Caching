@@ -122,11 +122,9 @@ namespace Microsoft.Extensions.Caching.Memory
 
             if (!entry.CheckExpired(utcNow))
             {
-                if (_entries.TryAdd(entry.Key, entry))
-                {
-                    entry.AttachTokens();
-                    added = true;
-                }
+                _entries[entry.Key] = entry;
+                entry.AttachTokens();
+                added = true;
             }
 
             if (priorEntry != null)
@@ -308,30 +306,30 @@ namespace Microsoft.Extensions.Caching.Memory
 
             // Sort items by expired & priority status
             var now = _clock.UtcNow;
-            foreach (var entry in _entries)
+            foreach (var entry in _entries.Values)
             {
-                if (entry.Value.CheckExpired(now))
+                if (entry.CheckExpired(now))
                 {
-                    expiredEntries.Add(entry.Value);
+                    expiredEntries.Add(entry);
                 }
                 else
                 {
-                    switch (entry.Value.Priority)
+                    switch (entry.Priority)
                     {
                         case CacheItemPriority.Low:
-                            lowPriEntries.Add(entry.Value);
+                            lowPriEntries.Add(entry);
                             break;
                         case CacheItemPriority.Normal:
-                            normalPriEntries.Add(entry.Value);
+                            normalPriEntries.Add(entry);
                             break;
                         case CacheItemPriority.High:
-                            highPriEntries.Add(entry.Value);
+                            highPriEntries.Add(entry);
                             break;
                         case CacheItemPriority.NeverRemove:
-                            neverRemovePriEntries.Add(entry.Value);
+                            neverRemovePriEntries.Add(entry);
                             break;
                         default:
-                            System.Diagnostics.Debug.Assert(false, "Not implemented: " + entry.Value.Priority);
+                            System.Diagnostics.Debug.Assert(false, "Not implemented: " + entry.Priority);
                             break;
                     }
                 }
