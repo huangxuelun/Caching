@@ -287,7 +287,7 @@ namespace Microsoft.Extensions.Caching.Memory
         /// Remove at least the given percentage (0.10 for 10%) of the total entries (or estimated memory?), according to the following policy:
         /// 1. Remove all expired items.
         /// 2. Bucket by CacheItemPriority.
-        /// ?. Least recently used objects.
+        /// 3. Least recently used objects.
         /// ?. Items with the soonest absolute expiration.
         /// ?. Items with the soonest sliding expiration.
         /// ?. Larger objects - estimated by object graph size, inaccurate.
@@ -341,7 +341,7 @@ namespace Microsoft.Extensions.Caching.Memory
         }
 
         /// Policy:
-        /// ?. Least recently used objects.
+        /// 1. Least recently used objects.
         /// ?. Items with the soonest absolute expiration.
         /// ?. Items with the soonest sliding expiration.
         /// ?. Larger objects - estimated by object graph size, inaccurate.
