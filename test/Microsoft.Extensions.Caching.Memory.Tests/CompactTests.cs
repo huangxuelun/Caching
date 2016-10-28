@@ -13,7 +13,7 @@ namespace Microsoft.Extensions.Caching.Memory
         {
             return new MemoryCache(new MemoryCacheOptions()
             {
-                Clock = clock ?? new SystemClock(),
+                Clock = clock,
                 CompactOnMemoryPressure = false,
             });
         }

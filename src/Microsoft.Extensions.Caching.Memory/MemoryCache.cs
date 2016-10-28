@@ -86,6 +86,12 @@ namespace Microsoft.Extensions.Caching.Memory
 
         private void SetEntry(CacheEntry entry)
         {
+            if (_disposed)
+            {
+                // No-op instead of throwing since this is called during Dispose
+                return;
+            }
+
             var utcNow = _clock.UtcNow;
 
             DateTimeOffset? absoluteExpiration = null;
@@ -151,7 +157,6 @@ namespace Microsoft.Extensions.Caching.Memory
             var utcNow = _clock.UtcNow;
             result = null;
             bool found = false;
-            CacheEntry expiredEntry = null;
             CheckDisposed();
             CacheEntry entry;
             if (_entries.TryGetValue(key, out entry))
@@ -159,7 +164,8 @@ namespace Microsoft.Extensions.Caching.Memory
                 // Check if expired due to expiration tokens, timers, etc. and if so, remove it.
                 if (entry.CheckExpired(utcNow))
                 {
-                    expiredEntry = entry;
+                    // TODO: For efficiency queue this up for batch removal
+                    RemoveEntry(entry);
                 }
                 else
                 {
@@ -171,12 +177,6 @@ namespace Microsoft.Extensions.Caching.Memory
                     // that entry needs a copy of these expiration tokens.
                     entry.PropagateOptions(CacheEntryHelper.Current);
                 }
-            }
-
-            if (expiredEntry != null)
-            {
-                // TODO: For efficiency queue this up for batch removal
-                RemoveEntry(expiredEntry);
             }
 
             StartScanForExpiredItems();
@@ -259,11 +259,11 @@ namespace Microsoft.Extensions.Caching.Memory
             List<CacheEntry> expiredEntries = new List<CacheEntry>();
 
             var now = cache._clock.UtcNow;
-            foreach (var entry in cache._entries)
+            foreach (var entry in cache._entries.Values)
             {
-                if (entry.Value.CheckExpired(now))
+                if (entry.CheckExpired(now))
                 {
-                    expiredEntries.Add(entry.Value);
+                    expiredEntries.Add(entry);
                 }
             }
 
@@ -293,11 +293,10 @@ namespace Microsoft.Extensions.Caching.Memory
         /// ?. Larger objects - estimated by object graph size, inaccurate.
         public void Compact(double percentage)
         {
-            List<CacheEntry> expiredEntries = new List<CacheEntry>();
-            List<CacheEntry> lowPriEntries = new List<CacheEntry>();
-            List<CacheEntry> normalPriEntries = new List<CacheEntry>();
-            List<CacheEntry> highPriEntries = new List<CacheEntry>();
-            List<CacheEntry> neverRemovePriEntries = new List<CacheEntry>();
+            var expiredEntries = new List<CacheEntry>();
+            var lowPriEntries = new List<CacheEntry>();
+            var normalPriEntries = new List<CacheEntry>();
+            var highPriEntries = new List<CacheEntry>();
 
             // Sort items by expired & priority status
             var now = _clock.UtcNow;
@@ -321,17 +320,14 @@ namespace Microsoft.Extensions.Caching.Memory
                             highPriEntries.Add(entry);
                             break;
                         case CacheItemPriority.NeverRemove:
-                            neverRemovePriEntries.Add(entry);
                             break;
                         default:
-                            System.Diagnostics.Debug.Assert(false, "Not implemented: " + entry.Priority);
-                            break;
+                            throw new NotSupportedException("Not implemented: " + entry.Priority);
                     }
                 }
             }
 
-            int totalEntries = expiredEntries.Count + lowPriEntries.Count + normalPriEntries.Count + highPriEntries.Count + neverRemovePriEntries.Count;
-            int removalCountTarget = (int)(totalEntries * percentage);
+            int removalCountTarget = (int)(_entries.Count * percentage);
 
             ExpirePriorityBucket(removalCountTarget, expiredEntries, lowPriEntries);
             ExpirePriorityBucket(removalCountTarget, expiredEntries, normalPriEntries);
