@@ -205,13 +205,7 @@ namespace Microsoft.Extensions.Caching.Memory
 
         private void RemoveEntry(CacheEntry entry)
         {
-            // Only remove it if someone hasn't modified it since our lookup
-            CacheEntry currentEntry;
-            if (_entries.TryGetValue(entry.Key, out currentEntry)
-                && object.ReferenceEquals(currentEntry, entry))
-            {
-                _entries.TryRemove(entry.Key, out currentEntry);
-            }
+            ((ICollection<KeyValuePair<object, CacheEntry>>)_entries).Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry));
             entry.InvokeEvictionCallbacks();
         }
 
@@ -219,13 +213,7 @@ namespace Microsoft.Extensions.Caching.Memory
         {
             foreach (var entry in entries)
             {
-                // Only remove it if someone hasn't modified it since our lookup
-                CacheEntry currentEntry;
-                if (_entries.TryGetValue(entry.Key, out currentEntry)
-                    && object.ReferenceEquals(currentEntry, entry))
-                {
-                    _entries.TryRemove(entry.Key, out currentEntry);
-                }
+                ((ICollection<KeyValuePair<object, CacheEntry>>)_entries).Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry));
             }
 
             foreach (var entry in entries)
