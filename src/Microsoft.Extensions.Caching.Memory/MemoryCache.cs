@@ -19,6 +19,7 @@ namespace Microsoft.Extensions.Caching.Memory
     public class MemoryCache : IMemoryCache
     {
         private readonly ConcurrentDictionary<object, CacheEntry> _entries;
+        private ICollection<KeyValuePair<object, CacheEntry>> _entriesCollection;
         private bool _disposed;
 
         // We store the delegates locally to prevent allocations
@@ -72,6 +73,19 @@ namespace Microsoft.Extensions.Caching.Memory
             get { return _entries.Count; }
         }
 
+        private ICollection<KeyValuePair<object, CacheEntry>> EntriesCollection
+        {
+            get
+            {
+                if (_entriesCollection == null)
+                {
+                    _entriesCollection = _entries;
+                }
+                return _entriesCollection;
+            }
+        }
+
+
         /// <inheritdoc />
         public ICacheEntry CreateEntry(object key)
         {
@@ -88,7 +102,7 @@ namespace Microsoft.Extensions.Caching.Memory
         {
             if (_disposed)
             {
-                // No-op instead of throwing since this is called during Dispose
+                // No-op instead of throwing since this is called during CacheEntry.Dispose
                 return;
             }
 
@@ -122,17 +136,20 @@ namespace Microsoft.Extensions.Caching.Memory
             if (_entries.TryRemove(entry.Key, out priorEntry))
             {
                 priorEntry.SetExpired(EvictionReason.Replaced);
-                priorEntry.InvokeEvictionCallbacks();
             }
 
-            if (!entry.CheckExpired(utcNow))
+            if (!entry.CheckExpired(utcNow) && _entries.TryAdd(entry.Key, entry))
             {
-                _entries[entry.Key] = entry;
                 entry.AttachTokens();
             }
             else
             {
                 entry.InvokeEvictionCallbacks();
+            }
+
+            if (priorEntry != null)
+            {
+                priorEntry.InvokeEvictionCallbacks();
             }
 
             StartScanForExpiredItems();
@@ -199,20 +216,9 @@ namespace Microsoft.Extensions.Caching.Memory
 
         private void RemoveEntry(CacheEntry entry)
         {
-            if (((ICollection<KeyValuePair<object, CacheEntry>>)_entries).Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry)))
+            if (EntriesCollection.Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry)))
             {
                 entry.InvokeEvictionCallbacks();
-            }
-        }
-
-        private void RemoveEntries(List<CacheEntry> entries)
-        {
-            foreach (var entry in entries)
-            {
-                if (((ICollection<KeyValuePair<object, CacheEntry>>)_entries).Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry)))
-                {
-                    entry.InvokeEvictionCallbacks();
-                }
             }
         }
 
@@ -311,7 +317,10 @@ namespace Microsoft.Extensions.Caching.Memory
             ExpirePriorityBucket(removalCountTarget, entriesToRemove, normalPriEntries);
             ExpirePriorityBucket(removalCountTarget, entriesToRemove, highPriEntries);
 
-            RemoveEntries(entriesToRemove);
+            foreach (var entry in entriesToRemove)
+            {
+                RemoveEntry(entry);
+            }
         }
 
         /// Policy:
