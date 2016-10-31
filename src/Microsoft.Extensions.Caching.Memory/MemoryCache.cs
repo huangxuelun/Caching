@@ -118,27 +118,19 @@ namespace Microsoft.Extensions.Caching.Memory
             // Initialize the last access timestamp at the time the entry is added
             entry.LastAccessed = utcNow;
 
-            var added = false;
             CacheEntry priorEntry;
-
             if (_entries.TryRemove(entry.Key, out priorEntry))
             {
                 priorEntry.SetExpired(EvictionReason.Replaced);
+                priorEntry.InvokeEvictionCallbacks();
             }
 
             if (!entry.CheckExpired(utcNow))
             {
                 _entries[entry.Key] = entry;
                 entry.AttachTokens();
-                added = true;
             }
-
-            if (priorEntry != null)
-            {
-                priorEntry.InvokeEvictionCallbacks();
-            }
-
-            if (!added)
+            else
             {
                 entry.InvokeEvictionCallbacks();
             }
@@ -154,10 +146,12 @@ namespace Microsoft.Extensions.Caching.Memory
                 throw new ArgumentNullException(nameof(key));
             }
 
-            var utcNow = _clock.UtcNow;
-            result = null;
-            bool found = false;
             CheckDisposed();
+
+            result = null;
+            var utcNow = _clock.UtcNow;
+            var found = false;
+
             CacheEntry entry;
             if (_entries.TryGetValue(key, out entry))
             {
@@ -205,20 +199,20 @@ namespace Microsoft.Extensions.Caching.Memory
 
         private void RemoveEntry(CacheEntry entry)
         {
-            ((ICollection<KeyValuePair<object, CacheEntry>>)_entries).Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry));
-            entry.InvokeEvictionCallbacks();
+            if (((ICollection<KeyValuePair<object, CacheEntry>>)_entries).Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry)))
+            {
+                entry.InvokeEvictionCallbacks();
+            }
         }
 
         private void RemoveEntries(List<CacheEntry> entries)
         {
             foreach (var entry in entries)
             {
-                ((ICollection<KeyValuePair<object, CacheEntry>>)_entries).Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry));
-            }
-
-            foreach (var entry in entries)
-            {
-                entry.InvokeEvictionCallbacks();
+                if (((ICollection<KeyValuePair<object, CacheEntry>>)_entries).Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry)))
+                {
+                    entry.InvokeEvictionCallbacks();
+                }
             }
         }
 
@@ -244,18 +238,14 @@ namespace Microsoft.Extensions.Caching.Memory
 
         private static void ScanForExpiredItems(MemoryCache cache)
         {
-            List<CacheEntry> expiredEntries = new List<CacheEntry>();
-
             var now = cache._clock.UtcNow;
             foreach (var entry in cache._entries.Values)
             {
                 if (entry.CheckExpired(now))
                 {
-                    expiredEntries.Add(entry);
+                    cache.RemoveEntry(entry);
                 }
             }
-
-            cache.RemoveEntries(expiredEntries);
         }
 
         /// This is called after a Gen2 garbage collection. We assume this means there was memory pressure.
@@ -281,7 +271,7 @@ namespace Microsoft.Extensions.Caching.Memory
         /// ?. Larger objects - estimated by object graph size, inaccurate.
         public void Compact(double percentage)
         {
-            var expiredEntries = new List<CacheEntry>();
+            var entriesToRemove = new List<CacheEntry>();
             var lowPriEntries = new List<CacheEntry>();
             var normalPriEntries = new List<CacheEntry>();
             var highPriEntries = new List<CacheEntry>();
@@ -292,7 +282,7 @@ namespace Microsoft.Extensions.Caching.Memory
             {
                 if (entry.CheckExpired(now))
                 {
-                    expiredEntries.Add(entry);
+                    entriesToRemove.Add(entry);
                 }
                 else
                 {
@@ -317,11 +307,11 @@ namespace Microsoft.Extensions.Caching.Memory
 
             int removalCountTarget = (int)(_entries.Count * percentage);
 
-            ExpirePriorityBucket(removalCountTarget, expiredEntries, lowPriEntries);
-            ExpirePriorityBucket(removalCountTarget, expiredEntries, normalPriEntries);
-            ExpirePriorityBucket(removalCountTarget, expiredEntries, highPriEntries);
+            ExpirePriorityBucket(removalCountTarget, entriesToRemove, lowPriEntries);
+            ExpirePriorityBucket(removalCountTarget, entriesToRemove, normalPriEntries);
+            ExpirePriorityBucket(removalCountTarget, entriesToRemove, highPriEntries);
 
-            RemoveEntries(expiredEntries);
+            RemoveEntries(entriesToRemove);
         }
 
         /// Policy:
@@ -329,22 +319,22 @@ namespace Microsoft.Extensions.Caching.Memory
         /// ?. Items with the soonest absolute expiration.
         /// ?. Items with the soonest sliding expiration.
         /// ?. Larger objects - estimated by object graph size, inaccurate.
-        private void ExpirePriorityBucket(int removalCountTarget, List<CacheEntry> expiredEntries, List<CacheEntry> priorityEntries)
+        private void ExpirePriorityBucket(int removalCountTarget, List<CacheEntry> entriesToRemove, List<CacheEntry> priorityEntries)
         {
             // Do we meet our quota by just removing expired entries?
-            if (removalCountTarget <= expiredEntries.Count)
+            if (removalCountTarget <= entriesToRemove.Count)
             {
                 // No-op, we've met quota
                 return;
             }
-            if (expiredEntries.Count + priorityEntries.Count <= removalCountTarget)
+            if (entriesToRemove.Count + priorityEntries.Count <= removalCountTarget)
             {
                 // Expire all of the entries in this bucket
                 foreach (var entry in priorityEntries)
                 {
                     entry.SetExpired(EvictionReason.Capacity);
                 }
-                expiredEntries.AddRange(priorityEntries);
+                entriesToRemove.AddRange(priorityEntries);
                 return;
             }
 
@@ -355,8 +345,8 @@ namespace Microsoft.Extensions.Caching.Memory
             foreach (var entry in priorityEntries.OrderBy(entry => entry.LastAccessed))
             {
                 entry.SetExpired(EvictionReason.Capacity);
-                expiredEntries.Add(entry);
-                if (removalCountTarget <= expiredEntries.Count)
+                entriesToRemove.Add(entry);
+                if (removalCountTarget <= entriesToRemove.Count)
                 {
                     break;
                 }
