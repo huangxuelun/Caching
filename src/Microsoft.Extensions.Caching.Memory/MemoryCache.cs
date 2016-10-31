@@ -45,6 +45,7 @@ namespace Microsoft.Extensions.Caching.Memory
 
             var options = optionsAccessor.Value;
             _entries = new ConcurrentDictionary<object, CacheEntry>();
+            _entriesCollection = _entries;
             _setEntry = SetEntry;
             _entryExpirationNotification = EntryExpired;
 
@@ -72,19 +73,6 @@ namespace Microsoft.Extensions.Caching.Memory
         {
             get { return _entries.Count; }
         }
-
-        private ICollection<KeyValuePair<object, CacheEntry>> EntriesCollection
-        {
-            get
-            {
-                if (_entriesCollection == null)
-                {
-                    _entriesCollection = _entries;
-                }
-                return _entriesCollection;
-            }
-        }
-
 
         /// <inheritdoc />
         public ICacheEntry CreateEntry(object key)
@@ -138,9 +126,17 @@ namespace Microsoft.Extensions.Caching.Memory
                 priorEntry.SetExpired(EvictionReason.Replaced);
             }
 
-            if (!entry.CheckExpired(utcNow) && _entries.TryAdd(entry.Key, entry))
+            if (!entry.CheckExpired(utcNow))
             {
-                entry.AttachTokens();
+                if (_entries.TryAdd(entry.Key, entry))
+                {
+                    entry.AttachTokens();
+                }
+                else
+                {
+                    entry.SetExpired(EvictionReason.Replaced);
+                    entry.InvokeEvictionCallbacks();
+                }
             }
             else
             {
@@ -216,7 +212,7 @@ namespace Microsoft.Extensions.Caching.Memory
 
         private void RemoveEntry(CacheEntry entry)
         {
-            if (EntriesCollection.Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry)))
+            if (_entriesCollection.Remove(new KeyValuePair<object, CacheEntry>(entry.Key, entry)))
             {
                 entry.InvokeEvictionCallbacks();
             }
