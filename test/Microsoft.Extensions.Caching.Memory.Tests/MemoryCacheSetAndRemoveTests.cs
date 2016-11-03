@@ -410,18 +410,18 @@ namespace Microsoft.Extensions.Caching.Memory
         }
 
         [Fact]
-        public void GetAndSet_AreThreadSafe()
+        public void GetAndSet_AreThreadSafe_AndUpdatesNeverLeavesNullValues()
         {
             var cache = CreateCache();
             string key = "myKey";
             var cts = new CancellationTokenSource();
-            var cts2 = new CancellationTokenSource();
+            var readValueIsNull = false;
 
-            cache.Set(key, new Guid(), new MemoryCacheEntryOptions().AddExpirationToken(new CancellationChangeToken(cts.Token)));
+            cache.Set(key, new Guid());
 
             var task1 = Task.Run(() =>
             {
-                while (!cts2.IsCancellationRequested)
+                while (!cts.IsCancellationRequested)
                 {
                     cache.Set(key, new Guid());
                 }
@@ -429,18 +429,30 @@ namespace Microsoft.Extensions.Caching.Memory
 
             var task2 = Task.Run(() =>
             {
-                while (!cts2.IsCancellationRequested)
+                while (!cts.IsCancellationRequested)
                 {
-                    cache.Get(key);
+                    if (cache.Get(key) == null)
+                    {
+                        // Stop this task and update flag for assertion
+                        readValueIsNull = true;
+                        break;
+                    }
                 }
             });
 
             var task3 = Task.Run(async () =>
             {
-                await Task.Delay(TimeSpan.FromSeconds(1));
-                cts2.Cancel();
+                await Task.Delay(TimeSpan.FromSeconds(10));
             });
 
+            Task.WaitAny(task1, task2, task3);
+
+            Assert.False(readValueIsNull);
+            Assert.Equal(TaskStatus.Running, task1.Status);
+            Assert.Equal(TaskStatus.Running, task2.Status);
+            Assert.Equal(TaskStatus.RanToCompletion, task3.Status);
+
+            cts.Cancel();
             Task.WaitAll(task1, task2, task3);
         }
 
